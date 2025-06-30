@@ -1,0 +1,257 @@
+<!DOCTYPE html><html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pivogram</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Orbitron', sans-serif; }
+    body {
+      background: linear-gradient(to bottom, #0f0f0f, #1a1a1a);
+      color: #0ff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #auth-container, #chat-container, #privateChatPage {
+      margin: auto;
+      width: 100%;
+      max-width: 800px;
+      background: #111;
+      border: 2px solid #0ff;
+      border-radius: 10px;
+      padding: 20px;
+    }
+    input, button, select {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 5px;
+      background: #222;
+      color: #0ff;
+    }
+    button:hover { background: #0ff; color: #000; }
+    .section { margin-top: 20px; }
+    #messages, #privateMessagesList {
+      max-height: 250px;
+      overflow-y: auto;
+      background: #000;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .msg { margin-bottom: 10px; background: #0f0f0f; padding: 5px 10px; border-radius: 5px; }
+    .msg::before { content: "😎 "; }
+    .online { color: lime; }
+    #friendList div, #globalResults div {
+      padding: 10px;
+      border-bottom: 1px solid #0ff;
+      cursor: pointer;
+    }
+    #friendList div:hover, #globalResults div:hover { background-color: #222; }
+  </style>
+</head>
+<body>
+  <div id="auth-container">
+    <h2>Добро пожаловать в <span style="color:#f0f">Pivogram</span></h2>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="password" placeholder="Пароль">
+    <input type="text" id="nickname" placeholder="Никнейм (уникальный)">
+    <button id="registerBtn">Регистрация</button>
+    <button id="loginBtn">Вход</button>
+  </div>  <div id="chat-container" style="display: none;">
+    <h3>Привет, <span id="current-nick"></span> <span class="online">● Онлайн</span></h3>
+    <button onclick="logout()">Выйти</button>
+    <input type="text" id="newNick" placeholder="Новый никнейм">
+    <button onclick="changeNickname()">Изменить ник</button><div class="section">
+  <h4>Список друзей:</h4>
+  <div id="friendList"></div>
+</div>
+
+<div class="section">
+  <h4>Глобальный поиск:</h4>
+  <input type="text" id="globalSearch" placeholder="Введите никнейм...">
+  <button onclick="searchGlobalUser()">Найти</button>
+  <div id="globalResults"></div>
+</div>
+
+<div class="section">
+  <h4>Глобальный чат:</h4>
+  <div id="messages"></div>
+  <input type="text" id="messageInput" placeholder="Введите сообщение...">
+  <button onclick="sendMessage()">Отправить</button>
+</div>
+
+  </div>  <div id="privateChatPage" style="display: none;">
+    <h3>Чат с <span id="chatWith"></span></h3>
+    <button onclick="closePrivateChat()">Назад</button>
+    <div id="privateMessagesList"></div>
+    <input type="text" id="privateInput" placeholder="Ваше сообщение...">
+    <button onclick="sendPrivate()">Отправить</button>
+    <button onclick="sendBigEmoji()">😄 Огромный эмодзи</button>
+  </div>  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getDatabase, ref, push, set, get, onChildAdded, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAgpPe1E6uh2UoMM4MbsBo4qhDg4ybpztc",
+      authDomain: "pivogram-b24ab.firebaseapp.com",
+      databaseURL: "https://pivogram-b24ab-default-rtdb.firebaseio.com",
+      projectId: "pivogram-b24ab",
+      storageBucket: "pivogram-b24ab.appspot.com",
+      messagingSenderId: "1034108097846",
+      appId: "1:1034108097846:web:9e675927017ecd65918f97",
+      measurementId: "G-Q6ECNYS3SR"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    let currentNick = "";
+    let chattingWith = "";
+
+    const friendList = document.getElementById("friendList");
+    const globalResults = document.getElementById("globalResults");
+
+    document.getElementById("registerBtn").onclick = () => {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const nickname = document.getElementById("nickname").value.trim();
+      if (!email || !password || !nickname) return alert("Все поля обязательны");
+      get(ref(db, `nicks/${nickname}`)).then(snap => {
+        if (snap.exists()) return alert("Ник уже занят");
+        createUserWithEmailAndPassword(auth, email, password)
+          .then(userCred => {
+            const uid = userCred.user.uid;
+            set(ref(db, `users/${uid}`), { email, nickname });
+            set(ref(db, `nicks/${nickname}`), uid);
+          });
+      });
+    };
+
+    document.getElementById("loginBtn").onclick = () => {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      signInWithEmailAndPassword(auth, email, password).catch(e => alert(e.message));
+    };
+
+    onAuthStateChanged(auth, user => {
+      if (!user) {
+        document.getElementById("auth-container").style.display = "block";
+        document.getElementById("chat-container").style.display = "none";
+        document.getElementById("privateChatPage").style.display = "none";
+        return;
+      }
+      document.getElementById("auth-container").style.display = "none";
+      document.getElementById("chat-container").style.display = "block";
+
+      get(ref(db, `users/${user.uid}`)).then(snap => {
+        currentNick = snap.val().nickname;
+        document.getElementById("current-nick").innerText = currentNick;
+        get(ref(db, "users")).then(usersSnap => {
+          friendList.innerHTML = "";
+          usersSnap.forEach(child => {
+            const data = child.val();
+            if (data.nickname !== currentNick) {
+              const div = document.createElement("div");
+              div.textContent = data.nickname;
+              div.onclick = () => openPrivateChat(data.nickname);
+              friendList.appendChild(div);
+            }
+          });
+        });
+      });
+
+      onChildAdded(ref(db, "messages"), data => {
+        const msg = data.val();
+        const div = document.createElement("div");
+        div.className = "msg";
+        div.textContent = `${msg.nickname}: ${msg.text}`;
+        document.getElementById("messages").appendChild(div);
+      });
+    });
+
+    function logout() {
+      signOut(auth);
+    }
+
+    function changeNickname() {
+      const newNick = document.getElementById("newNick").value.trim();
+      const user = auth.currentUser;
+      if (!newNick || !user) return;
+      get(ref(db, `nicks/${newNick}`)).then(snap => {
+        if (snap.exists()) return alert("Ник занят");
+        const uid = user.uid;
+        update(ref(db, `users/${uid}`), { nickname: newNick });
+        set(ref(db, `nicks/${newNick}`), uid);
+        set(ref(db, `nicks/${currentNick}`), null);
+        currentNick = newNick;
+        document.getElementById("current-nick").innerText = newNick;
+      });
+    }
+
+    function openPrivateChat(nick) {
+      chattingWith = nick;
+      document.getElementById("chat-container").style.display = "none";
+      document.getElementById("privateChatPage").style.display = "block";
+      document.getElementById("chatWith").innerText = nick;
+      const privateMessagesList = document.getElementById("privateMessagesList");
+      privateMessagesList.innerHTML = "";
+      const path1 = `private/${currentNick}_${nick}`;
+      const path2 = `private/${nick}_${currentNick}`;
+      onChildAdded(ref(db, path1), d => renderPrivateMsg(d.val()));
+      onChildAdded(ref(db, path2), d => renderPrivateMsg(d.val()));
+    }
+
+    function renderPrivateMsg(msg) {
+      const div = document.createElement("div");
+      div.className = "msg";
+      div.textContent = `${msg.from}: ${msg.text}`;
+      document.getElementById("privateMessagesList").appendChild(div);
+    }
+
+    window.sendPrivate = function () {
+      const text = document.getElementById("privateInput").value;
+      if (!text || !chattingWith) return;
+      push(ref(db, `private/${currentNick}_${chattingWith}`), { from: currentNick, text });
+      document.getElementById("privateInput").value = "";
+    }
+
+    window.sendBigEmoji = function () {
+      const emoji = "😄😄😄😄😄";
+      if (!chattingWith) return;
+      push(ref(db, `private/${currentNick}_${chattingWith}`), { from: currentNick, text: emoji });
+    }
+
+    window.closePrivateChat = function () {
+      document.getElementById("privateChatPage").style.display = "none";
+      document.getElementById("chat-container").style.display = "block";
+    }
+
+    window.sendMessage = function () {
+      const text = document.getElementById("messageInput").value;
+      if (!text || !auth.currentUser) return;
+      push(ref(db, "messages"), { nickname: currentNick, text });
+      document.getElementById("messageInput").value = "";
+    }
+
+    window.searchGlobalUser = function () {
+      const query = document.getElementById("globalSearch").value.trim().toLowerCase();
+      if (!query) return;
+      get(ref(db, "users")).then(snap => {
+        globalResults.innerHTML = "";
+        snap.forEach(child => {
+          const data = child.val();
+          if (data.nickname.toLowerCase().includes(query) && data.nickname !== currentNick) {
+            const div = document.createElement("div");
+            div.textContent = data.nickname;
+            div.onclick = () => openPrivateChat(data.nickname);
+            globalResults.appendChild(div);
+          }
+        });
+      });
+    }
+  </script></body>
+</html>
